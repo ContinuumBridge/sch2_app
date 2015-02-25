@@ -437,6 +437,7 @@ class NightWander():
         global config
         self.aid = aid
         self.lastActive = 0
+        self.activatedSensors = []
         if config["client_test"] == 'True':
             reactor.callLater(30, self.clientTest)
 
@@ -474,15 +475,21 @@ class NightWander():
         if value == "on":
             alarm = betweenTimes(timeStamp, config["night_start"], config["night_end"])
             if alarm:
+                sensor = self.idToName[devID]
+                if sensor not in self.activatedSensors:
+                    self.activatedSensors += self.idToName[devID]
                 if timeStamp - self.lastActive > config["night_ignore_time"]:
                     self.cbLog("debug", "Night Wander: " + str(alarm) + ": " + str(time.asctime(time.localtime(timeStamp))))
                     msg = {"m": "alarm",
-                           "s": self.idToName[devID],
+                           "s": ", ".join(self.activatedSensors),
                            "t": timeStamp
                           }
                     self.client.send(msg)
+                    self.dm.storeActivity("Night_Wander", timeStamp-1, self.idToName[devID], 0)
                     self.dm.storeActivity("Night_Wander", timeStamp, self.idToName[devID], 1)
-                self.lastActive = timeStamp
+                    self.dm.storeActivity("Night_Wander", timeStamp+1, self.idToName[devID], 0)
+                    self.lastActive = timeStamp
+                    self.activatedSensors = []
 
 class EntryExit():
     def __init__(self):

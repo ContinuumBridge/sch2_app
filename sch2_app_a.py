@@ -331,7 +331,7 @@ class Binary():
             bi = 0
         if bi != self.previous:
             if timeStamp != self.previousTime:
-                #self.dm.storeBinary(self.id, timeStamp-1.0, self.previous)
+                self.dm.storeBinary(self.id, timeStamp-1.0, self.previous)
                 self.dm.storeBinary(self.id, timeStamp, bi)
                 self.previous = bi
                 self.previousTime = timeStamp

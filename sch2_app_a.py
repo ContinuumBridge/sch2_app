@@ -477,11 +477,12 @@ class NightWander():
             if alarm:
                 sensor = self.idToName[devID]
                 if sensor not in self.activatedSensors:
-                    self.activatedSensors += self.idToName[devID]
+                    self.activatedSensors.append(self.idToName[devID])
                 if timeStamp - self.lastActive > config["night_ignore_time"]:
-                    self.cbLog("debug", "Night Wander: " + str(alarm) + ": " + str(time.asctime(time.localtime(timeStamp))))
+                    self.cbLog("debug", "Night Wander: " + str(alarm) + ": " + str(time.asctime(time.localtime(timeStamp))) + \
+                    " sensors: " + str(self.activatedSensors))
                     msg = {"m": "alarm",
-                           "s": ", ".join(self.activatedSensors),
+                           "s": str(", ".join(self.activatedSensors)),
                            "t": timeStamp
                           }
                     self.client.send(msg)
@@ -865,7 +866,7 @@ class App(CbApp):
                 idToName2[adtID] = friendly_name
                 self.idToName[adtID] = friendly_name.replace(" ", "_")
                 self.devices.append(adtID)
-        self.client = Client(self.bridge_id)
+        self.client = Client(self.id)
         self.client.sendMessage = self.sendMessage
         self.client.cbLog = self.cbLog
         self.dm = DataManager(self.bridge_id, self.idToName)

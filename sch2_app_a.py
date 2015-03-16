@@ -21,14 +21,14 @@ from email.mime.text import MIMEText
 # For entry/exit
 IN_PIR_TO_DOOR_TIME               = 30   
 DOOR_CLOSE_TO_IN_PIR_TIME         = 10
-DOOR_OPEN_TO_IN_PIR_TIME          = 15
+DOOR_OPEN_TO_IN_PIR_TIME          = 30
 MAX_DOOR_OPEN_TIME                = 60
 
 SEND_DELAY               = 20  # Time to gather values for a device before sending them
 # Default values:
 config = {
     "temperature": "True",
-    "temp_min_change": 0.2,
+    "temp_min_change": 0.0,
     "irtemperature": "False",
     "irtemp_min_change": 0.5,
     "humidity": "True",
@@ -45,7 +45,7 @@ config = {
     "magnet_polling_interval": 3.0,
     "binary": "True",
     "luminance": "True",
-    "luminance_min_change": 1.0,
+    "luminance_min_change": 0.0,
     "power": "True",
     "power_min_change": 1.0,
     "battery": "True",
@@ -104,6 +104,7 @@ class DataManager:
         msg = {"m": "data",
                "d": self.s
                }
+        self.cbLog("debug", "sendValues. Sending: " + str(msg))
         self.client.send(msg)
         self.s = []
         self.waiting = False
@@ -134,7 +135,7 @@ class DataManager:
 
     def storeHumidity(self, deviceID, timeStamp, h):
         values = {"name": self.baseAddress + deviceID + "/humidity",
-                   "points": [[int(timeStamp*1000), temp]]
+                   "points": [[int(timeStamp*1000), h]]
                  }
         self.storeValues(values)
 
@@ -211,54 +212,31 @@ class Accelerometer:
             self.previous = accel
 
 class TemperatureMeasure():
-    """ Either send temp every minute or when it changes. """
     def __init__(self, id):
-        # self.mode is either regular or on_change
-        self.mode = "on_change"
-        self.minChange = 0.2
         self.id = id
-        epochTime = time.time()
-        self.prevEpochMin = int(epochTime - epochTime%60)
-        self.powerTemp = 0.0
+        self.prevTemp = 0.0
+        self.prevTime = time.time()
 
     def processTemp (self, resp):
+        self.cbLog("debug", "processTemp: " + self.id + " - " + str(resp))
         timeStamp = resp["timeStamp"] 
         temp = resp["data"]
-        if self.mode == "regular":
-            epochMin = int(timeStamp - timeStamp%60)
-            if epochMin != self.prevEpochMin:
-                temp = resp["data"]
-                self.dm.storeTemp(self.id, self.prevEpochMin, temp) 
-                self.prevEpochMin = epochMin
-        else:
-            if abs(temp-self.powerTemp) >= config["temp_min_change"]:
-                self.dm.storeTemp(self.id, timeStamp, temp) 
-                self.powerTemp = temp
+        if abs(temp-self.prevTemp) >= config["temp_min_change"] or timeStamp - self.prevTime > 30*60:
+            self.dm.storeTemp(self.id, timeStamp, temp) 
+            self.prevTemp = temp
+            self.prevTime = timeStamp
 
 class IrTemperatureMeasure():
-    """ Either send temp every minute or when it changes. """
     def __init__(self, id):
-        # self.mode is either regular or on_change
-        self.mode = "on_change"
-        self.minChange = 0.2
         self.id = id
-        epochTime = time.time()
-        self.prevEpochMin = int(epochTime - epochTime%60)
-        self.powerTemp = 0.0
+        self.prevTemp = 0.0
 
     def processIrTemp (self, resp):
         timeStamp = resp["timeStamp"] 
         temp = resp["data"]
-        if self.mode == "regular":
-            epochMin = int(timeStamp - timeStamp%60)
-            if epochMin != self.prevEpochMin:
-                temp = resp["data"]
-                self.dm.storeIrTemp(self.id, self.prevEpochMin, temp) 
-                self.prevEpochMin = epochMin
-        else:
-            if abs(temp-self.powerTemp) >= config["irtemp_min_change"]:
-                self.dm.storeIrTemp(self.id, timeStamp, temp) 
-                self.powerTemp = temp
+        if abs(temp-self.prevTemp) >= config["irtemp_min_change"]:
+            self.dm.storeIrTemp(self.id, timeStamp, temp) 
+            self.prevTemp = temp
 
 class Buttons():
     def __init__(self, id):
@@ -308,13 +286,16 @@ class Humid():
     def __init__(self, id):
         self.id = id
         self.previous = 0.0
+        self.prevTime = time.time()
 
     def processHumidity (self, resp):
+        self.cbLog("debug", "processHumidity: " + self.id + " - " + str(resp))
         h = resp["data"]
         timeStamp = resp["timeStamp"] 
-        if abs(self.previous) >= config["humidity_min_change"]:
+        if abs(self.previous - h) >= config["humidity_min_change"] or timeStamp - self.prevTime > 30*60:
             self.dm.storeHumidity(self.id, timeStamp, h) 
             self.previous = h
+            self.prevTime = timeStamp
 
 class Binary():
     def __init__(self, id):
@@ -340,13 +321,16 @@ class Luminance():
     def __init__(self, id):
         self.id = id
         self.previous = 0
+        self.prevTime = time.time()
 
     def processLuminance(self, resp):
+        self.cbLog("debug", "processLuminance: " + self.id + " - " + str(resp))
         v = resp["data"]
         timeStamp = resp["timeStamp"] 
-        if abs(v-self.previous) >= config["luminance_min_change"]:
+        if abs(v-self.previous) >= config["luminance_min_change"] or timeStamp - self.prevTime > 30*60:
             self.dm.storeLuminance(self.id, timeStamp, v) 
             self.previous = v
+            self.prevTime = timeStamp
 
 class Power():
     def __init__(self, id):
@@ -411,10 +395,10 @@ class Client():
         self.sendMessage(message, "conc")
 
     def receive(self, message):
-        self.cbLog("debug", "Message from client: " + str(message))
+        #self.cbLog("debug", "Message from client: " + str(message))
         if "body" in message:
             if "n" in message["body"]:
-                self.cbLog("debug", "Received ack from client: " + str(message["body"]["n"]))
+                #self.cbLog("debug", "Received ack from client: " + str(message["body"]["n"]))
                 for m in self.messages:
                     if m["body"]["n"] == m:
                         self.messages.remove(m)
@@ -629,6 +613,9 @@ class CheckExit():
             elif time.time() - self.door_open_time > MAX_DOOR_OPEN_TIME:
                 action = "door_open_too_long"
                 self.state = "wait_long_door_open"
+        elif self.state == "wait_long_door_open":
+            if not self.door_open:
+                self.state = "idle"
         elif self.state == "wait_door_close":
             if not self.door_open:
                 self.state = "idle"
@@ -764,6 +751,7 @@ class App(CbApp):
                 if config["temperature"] == 'True':
                     self.temp.append(TemperatureMeasure((self.idToName[message["id"]])))
                     self.temp[-1].dm = self.dm
+                    self.temp[-1].cbLog = self.cbLog
                     serviceReq.append({"characteristic": "temperature",
                                        "interval": config["slow_polling_interval"]})
             elif p["characteristic"] == "ir_temperature":
@@ -800,12 +788,14 @@ class App(CbApp):
                 if config["humidity"] == 'True':
                     self.humidity.append(Humid(self.idToName[message["id"]]))
                     self.humidity[-1].dm = self.dm
+                    self.humidity[-1].cbLog = self.cbLog
                     serviceReq.append({"characteristic": "humidity",
                                        "interval": config["slow_polling_interval"]})
             elif p["characteristic"] == "binary_sensor":
                 if config["binary"] == 'True':
                     self.binary.append(Binary(self.idToName[message["id"]]))
                     self.binary[-1].dm = self.dm
+                    self.binary[-1].cbLog = self.cbLog
                     serviceReq.append({"characteristic": "binary_sensor",
                                        "interval": 0})
             elif p["characteristic"] == "power":
@@ -830,6 +820,7 @@ class App(CbApp):
                 if config["luminance"] == 'True':
                     self.luminance.append(Luminance(self.idToName[message["id"]]))
                     self.luminance[-1].dm = self.dm
+                    self.luminance[-1].cbLog = self.cbLog
                     serviceReq.append({"characteristic": "luminance",
                                        "interval": 0})
         msg = {"id": self.id,

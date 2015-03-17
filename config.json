@@ -1,9 +1,9 @@
 {
     "exe": "sch2_app.py", 
     "description": "Monitors and reports various characterisitcs", 
-    "url": "https://github.com/ContinuumBridge/sch2_app/archive/v1.0.4.tar.gz", 
+    "url": "https://github.com/ContinuumBridge/sch2_app/archive/v1.0.5.tar.gz", 
     "app_resource": "/api/bridge/v1/app/19", 
-    "version": "1.0.4", 
+    "version": "1.0.5", 
     "provider": "ContinuumBridge", 
     "name": "SCH2 App"
 }

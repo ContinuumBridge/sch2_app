@@ -24,11 +24,12 @@ DOOR_CLOSE_TO_IN_PIR_TIME         = 10
 DOOR_OPEN_TO_IN_PIR_TIME          = 30
 MAX_DOOR_OPEN_TIME                = 60
 
-SEND_DELAY               = 20  # Time to gather values for a device before sending them
+SEND_DELAY                        = 20  # Time to gather values for a device before sending them
+MAX_INTERVAL                      = 30*60 # Will post values after this even if they haven't changed
 # Default values:
 config = {
     "temperature": "True",
-    "temp_min_change": 0.0,
+    "temp_min_change": 0.1,
     "irtemperature": "False",
     "irtemp_min_change": 0.5,
     "humidity": "True",
@@ -45,7 +46,7 @@ config = {
     "magnet_polling_interval": 3.0,
     "binary": "True",
     "luminance": "True",
-    "luminance_min_change": 0.0,
+    "luminance_min_change": 1.0,
     "power": "True",
     "power_min_change": 1.0,
     "battery": "True",
@@ -221,7 +222,7 @@ class TemperatureMeasure():
         self.cbLog("debug", "processTemp: " + self.id + " - " + str(resp))
         timeStamp = resp["timeStamp"] 
         temp = resp["data"]
-        if abs(temp-self.prevTemp) >= config["temp_min_change"] or timeStamp - self.prevTime > 30*60:
+        if abs(temp-self.prevTemp) >= config["temp_min_change"] or timeStamp - self.prevTime > MAX_INTERVAL:
             self.dm.storeTemp(self.id, timeStamp, temp) 
             self.prevTemp = temp
             self.prevTime = timeStamp
@@ -292,7 +293,7 @@ class Humid():
         self.cbLog("debug", "processHumidity: " + self.id + " - " + str(resp))
         h = resp["data"]
         timeStamp = resp["timeStamp"] 
-        if abs(self.previous - h) >= config["humidity_min_change"] or timeStamp - self.prevTime > 30*60:
+        if abs(self.previous - h) >= config["humidity_min_change"] or timeStamp - self.prevTime > MAX_INTERVAL:
             self.dm.storeHumidity(self.id, timeStamp, h) 
             self.previous = h
             self.prevTime = timeStamp
@@ -327,7 +328,7 @@ class Luminance():
         self.cbLog("debug", "processLuminance: " + self.id + " - " + str(resp))
         v = resp["data"]
         timeStamp = resp["timeStamp"] 
-        if abs(v-self.previous) >= config["luminance_min_change"] or timeStamp - self.prevTime > 30*60:
+        if abs(v-self.previous) >= config["luminance_min_change"] or timeStamp - self.prevTime > MAX_INTERVAL:
             self.dm.storeLuminance(self.id, timeStamp, v) 
             self.previous = v
             self.prevTime = timeStamp
@@ -341,7 +342,7 @@ class Power():
     def processPower(self, resp):
         v = resp["data"]
         timeStamp = resp["timeStamp"] 
-        if abs(v-self.previous) >= config["power_min_change"]:
+        if abs(v-self.previous) >= config["power_min_change"] or timeStamp - self.previousTime > MAX_INTERVAL:
             if timeStamp - self.previousTime > 2:
                 self.dm.storePower(self.id, timeStamp-1.0, self.previous)
             self.dm.storePower(self.id, timeStamp, v) 
@@ -352,18 +353,21 @@ class Battery():
     def __init__(self, id):
         self.id = id
         self.previous = 0
+        self.previousTime = time.time()
 
     def processBattery(self, resp):
         v = resp["data"]
         timeStamp = resp["timeStamp"] 
-        if abs(v-self.previous) >= config["battery_min_change"]:
+        if abs(v-self.previous) >= config["battery_min_change"] or timeStamp - self.previousTime > MAX_INTERVAL:
             self.dm.storeBattery(self.id, timeStamp, v) 
             self.previous = v
+            self.previousTime = timeStamp
 
 class Connected():
     def __init__(self, id):
         self.id = id
         self.previous = 0
+        self.previousTime = time.time()
 
     def processConnected(self, resp):
         v = resp["data"]
@@ -372,10 +376,11 @@ class Connected():
             b = 1
         else:
             b = 0
-        if b != self.previous:
+        if b != self.previous or timeStamp - self.previousTime > MAX_INTERVAL:
             self.dm.storeConnected(self.id, timeStamp-1.0, self.previous)
             self.dm.storeConnected(self.id, timeStamp, b) 
             self.previous = b
+            self.previousTime = timeStamp
 
 class Client():
     def __init__(self, aid):
@@ -537,7 +542,7 @@ class EntryExit():
                 devs.append(l["magsw"])
                 devs.append(l["ipir"])
         except Exception as ex:
-            self.cbLog("warning", "entry-exit initialisation failed, probably due to corrupt sch_app.config file")
+            self.cbLog("warning", "entry-exit initialisation failed, probably due to corrupt sch2_app.config file")
             self.cbLog("warning", "Exception: " + str(type(ex)) + str(ex.args))
         return devs
 
@@ -831,14 +836,14 @@ class App(CbApp):
 
     def onConfigureMessage(self, managerConfig):
         global config
-        configFile = CB_CONFIG_DIR + "sch_app.config"
+        configFile = CB_CONFIG_DIR + "sch2_app.config"
         try:
             with open(configFile, 'r') as f:
                 newConfig = json.load(f)
-                self.cbLog("debug", "Read sch_app.config")
+                self.cbLog("debug", "Read sch2_app.config")
                 config.update(newConfig)
         except Exception as ex:
-            self.cbLog("warning", "sch_app.config does not exist or file is corrupt")
+            self.cbLog("warning", "sch2_app.config does not exist or file is corrupt")
             self.cbLog("warning", "Exception: " + str(type(ex)) + str(ex.args))
         for c in config:
             if c.lower in ("true", "t", "1"):

@@ -6,26 +6,6 @@
 # Written by Peter Claydon
 #
 
-import sys
-import os.path
-import time
-from cbcommslib import CbApp
-from cbconfig import *
-import requests
-import json
-from twisted.internet import reactor
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-
-# For entry/exit
-IN_PIR_TO_DOOR_TIME               = 30   
-DOOR_CLOSE_TO_IN_PIR_TIME         = 10
-DOOR_OPEN_TO_IN_PIR_TIME          = 30
-MAX_DOOR_OPEN_TIME                = 60
-
-SEND_DELAY                        = 20  # Time to gather values for a device before sending them
-MAX_INTERVAL                      = 30*60 # Will post values after this even if they haven't changed
 # Default values:
 config = {
     "temperature": "True",
@@ -60,9 +40,38 @@ config = {
     "night_ignore_time": 600,
     "entry-exit": "False",
     "entry-exits": [],
+    "hot_drinks": {"name": "Not Set",
+                   "enable": "False",
+                   "sensor": "",
+                   "threshold": 2
+                  },
     "cid": "none",
     "client_test": "False"
 }
+
+import sys
+import os.path
+import time
+from cbcommslib import CbApp
+from cbconfig import *
+import requests
+import json
+from twisted.internet import reactor
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from entry_exit import EntryExit, CheckExit
+from nightwander import NightWander
+from hotdrinks import HotDrinks
+
+# For entry/exit
+IN_PIR_TO_DOOR_TIME               = 30   
+DOOR_CLOSE_TO_IN_PIR_TIME         = 10
+DOOR_OPEN_TO_IN_PIR_TIME          = 30
+MAX_DOOR_OPEN_TIME                = 60
+
+SEND_DELAY                        = 20  # Time to gather values for a device before sending them
+MAX_INTERVAL                      = 30*60 # Will post values after this even if they haven't changed
 
 def betweenTimes(t, t1, t2):
     # True if epoch t is between times of day t1 and t2 (in 24-hour clock format: "23:10")
@@ -421,221 +430,6 @@ class pillbox():
     def calcAverage(self):
         points_to_average = 16
 
-class NightWander():
-    def __init__(self, aid):
-        global config
-        self.aid = aid
-        self.lastActive = 0
-        self.activatedSensors = []
-        if config["client_test"] == 'True':
-            reactor.callLater(30, self.clientTest)
-
-    def clientTest(self):
-        self.cbLog("debug", "clientTest")
-        msg = {"m": "alarm",
-               "s": "Test",
-               "t": time.time()
-              }
-        self.client.send(msg)
-        reactor.callLater(20, self.clientTest)
-
-    def setNames(self, idToName):
-        self.idToName = idToName
-        if config["night_wandering"] == "True":
-            if config["night_sensors"] == []:
-                for d in idToName:
-                    config["night_sensors"].append(d)
-            else:
-                for n in config["night_sensors"]:
-                    found = False
-                    for d in idToName:
-                        self.cbLog("debug", "NightWander. Matching n: " + n + " with d: " + d + " , idToName[d]: " + idToName[d])
-                        if n == idToName[d]:
-                            loc = config["night_sensors"].index(n) 
-                            config["night_sensors"][loc] = d
-                            found = True
-                            break
-                    if not found:
-                        self.cbLog("info", "NightWander. Sensor name does not exist: " + n)
-            self.cbLog("debug", "NightWander. night sensors: " + str(config["night_sensors"]))
-
-    def onChange(self, devID, timeStamp, value):
-        self.cbLog("debug", "Night Wander onChange, devID: " + devID + " value: " + value)
-        if value == "on":
-            alarm = betweenTimes(timeStamp, config["night_start"], config["night_end"])
-            if alarm:
-                sensor = self.idToName[devID]
-                if sensor not in self.activatedSensors:
-                    self.activatedSensors.append(self.idToName[devID])
-                if timeStamp - self.lastActive > config["night_ignore_time"]:
-                    self.cbLog("debug", "Night Wander: " + str(alarm) + ": " + str(time.asctime(time.localtime(timeStamp))) + \
-                    " sensors: " + str(self.activatedSensors))
-                    msg = {"m": "alarm",
-                           "s": str(", ".join(self.activatedSensors)),
-                           "t": timeStamp
-                          }
-                    self.client.send(msg)
-                    self.dm.storeActivity("Night_Wander", timeStamp-1, self.idToName[devID], 0)
-                    self.dm.storeActivity("Night_Wander", timeStamp, self.idToName[devID], 1)
-                    self.dm.storeActivity("Night_Wander", timeStamp+1, self.idToName[devID], 0)
-                    self.lastActive = timeStamp
-                    self.activatedSensors = []
-
-class EntryExit():
-    def __init__(self):
-        self.inside_triggered = False
-        self.inside_pir_on = False
-        self.door_open = False
-        self.action = "nothing"
-        self.locations = []
-        self.checkExit = {}
-
-    def initExits(self, idToName):
-        self.idToName = idToName
-        """
-        splits = {}
-        for d in idToName:
-            splits[d] = idToName[d].split(" ")
-            if len(splits[d]) == 1:
-                splits[d] = idToName[d].split("-")
-        for d in splits:
-            self.cbLog("debug", "initExits, device: " + d + " name: " + str(splits[d]))
-            self.cbLog("debug", "initExits, magsw test: " + splits[d][0][:5].lower())
-            if splits[d][0][:5].lower() == "magsw":
-                location = splits[d][2].lower()
-                self.cbLog("debug", "initExits, location: " + location)
-                for d2 in splits:
-                    self.cbLog("debug", "initExits, d2: " + str(d2))
-                    if splits[d2][0][:3].lower() == "pir" and splits[d2][1].lower() == "inside":
-                        self.cbLog("debug", "initExits, pir: " + str(splits[d2]))
-                        if splits[d2][2].lower() == location:
-                            loc = {"location": splits[d][2],
-                                   "magsw": d,
-                                   "ipir": d2}
-                            self.locations.append(loc)
-                            break
-        """
-        devs = []
-        try:
-            if config["entry-exit"] == "True":
-                for c in config["entry-exits"]:
-                    ipir = False
-                    magsw = False
-                    loc = {}
-                    loc["location"] = c["location"]
-                    for d in idToName:
-                        if idToName[d] == c["inside_activity"]:
-                            loc["ipir"] = d
-                            ipir = True
-                        if idToName[d] == c["door"]:
-                            loc["magsw"] = d
-                            magsw = True
-                    if ipir and magsw:
-                        self.locations.append(loc)
-                    else:
-                        self.cbLog("warning", "entry-exit, location does not have known sensors: " + c["location"])
-            self.cbLog("debug", "initExits, locations: " + str(self.locations))
-            for l in self.locations:
-                self.checkExit[l["location"]] = CheckExit(l["location"])
-                self.checkExit[l["location"]].cbLog = self.cbLog
-                self.checkExit[l["location"]].dm = self.dm
-                devs.append(l["magsw"])
-                devs.append(l["ipir"])
-        except Exception as ex:
-            self.cbLog("warning", "entry-exit initialisation failed, probably due to corrupt sch2_app.config file")
-            self.cbLog("warning", "Exception: " + str(type(ex)) + str(ex.args))
-        return devs
-
-    def onChange(self, devID, timeStamp, value):
-        #self.cbLog("debug", "EntryExit onChange, devID: " + "devID")
-        for l in self.locations:
-            if devID == l["magsw"]:
-                self.checkExit[l["location"]].onChange("magsw", timeStamp, value)
-            elif devID == l["ipir"]:
-                self.checkExit[l["location"]].onChange("ipir", timeStamp, value)
-
-class CheckExit():
-    def __init__(self, location):
-        self.location = location
-        self.inside_pir_on_time = 0
-        self.inside_pir_off_time = 0
-        self.inside_pir_on = False
-        self.door_open = False
-        self.door_open_time = 0
-        self.door_close_time = 0
-        self.state = "idle"
-        reactor.callLater(10, self.fsm)
-
-    def onChange(self, sensor, timeStamp, value):
-        self.cbLog("debug", "CheckExit, onChange. loc: " + self.location + " sensor: " + sensor)
-        if sensor == "ipir":
-            if value == "on":
-                self.inside_pir_on_time = timeStamp
-                self.inside_pir_on = True
-            else:
-                self.inside_pir_off_time = timeStamp
-                self.inside_pir_on = False
-        if sensor == "magsw":
-            if value == "on":
-                self.door_open = True
-                self.door_open_time = timeStamp
-            else:
-                self.door_open = False
-                self.door_close_time = timeStamp
-              
-    def fsm(self):
-        # This method is called every second
-        prev_state = self.state
-        action = "none"
-        if self.state == "idle":
-            if self.door_open:
-                if self.door_open_time - self.inside_pir_on_time < IN_PIR_TO_DOOR_TIME or self.inside_pir_on:
-                    self.state = "check_going_out"
-                else:
-                    self.state = "check_coming_in"
-        elif self.state == "check_going_out":
-            if not self.door_open:
-                self.state = "check_went_out"
-        elif self.state == "check_went_out":
-            t = time.time()
-            if t - self.door_close_time > DOOR_CLOSE_TO_IN_PIR_TIME:
-                if self.inside_pir_on or t - self.inside_pir_off_time < DOOR_CLOSE_TO_IN_PIR_TIME - 4:
-                    action = "answered_door"
-                    self.state = "idle"
-                else:
-                    action = "went_out"
-                    self.state = "idle"
-        elif self.state == "check_coming_in":
-            if self.inside_pir_on:
-                action = "came_in"
-                self.state = "wait_door_close"
-            elif time.time() - self.door_open_time > DOOR_OPEN_TO_IN_PIR_TIME:
-                action = "open_and_close"
-                self.state = "wait_door_close"
-        elif self.state == "wait_door_close":
-            if not self.door_open:
-                self.state = "idle"
-            elif time.time() - self.door_open_time > MAX_DOOR_OPEN_TIME:
-                action = "door_open_too_long"
-                self.state = "wait_long_door_open"
-        elif self.state == "wait_long_door_open":
-            if not self.door_open:
-                self.state = "idle"
-        elif self.state == "wait_door_close":
-            if not self.door_open:
-                self.state = "idle"
-        else:
-            self.cbLog("warning", "self.door algorithm imposssible self.state")
-            self.state = "idle"
-        if self.state != prev_state:
-            self.cbLog("debug", "checkExits, new state: " + self.state)
-        if action != "none":
-            self.cbLog("debug", "checkExits, action: " + action) 
-            self.dm.storeActivity(self.location, self.door_open_time, action, 0)
-            self.dm.storeActivity(self.location, self.door_open_time + 1, action, 1)
-            self.dm.storeActivity(self.location, self.door_open_time + 2, action, 0)
-        reactor.callLater(1, self.fsm)
-
 class App(CbApp):
     def __init__(self, argv):
         self.appClass = "monitor"
@@ -657,6 +451,7 @@ class App(CbApp):
         self.devServices = [] 
         self.idToName = {} 
         self.entryExitIDs = []
+        self.hotDrinkIDs = []
         #CbApp.__init__ MUST be called
         CbApp.__init__(self, argv)
 
@@ -722,14 +517,19 @@ class App(CbApp):
             for n in self.entryExitIDs:
                 if n == message["id"]:
                     self.entryExit.onChange(message["id"], message["timeStamp"], message["data"])
+                    break
             for n in config["night_sensors"]:
                 if n == message["id"]:
                     self.nightWander.onChange(message["id"], message["timeStamp"], message["data"])
+                    break
         elif message["characteristic"] == "power":
             for b in self.power:
                 if b.id == self.idToName[message["id"]]:
                     b.processPower(message)
                     break
+            if config["hot_drinks"]["enable"] == "True":
+                if message["id"] == self.hotDrinksID:
+                    self.hotDrinks.onChange(message["timeStamp"], message["data"])
         elif message["characteristic"] == "battery":
             for b in self.battery:
                 if b.id == self.idToName[message["id"]]:
@@ -871,13 +671,18 @@ class App(CbApp):
         self.entryExit = EntryExit()
         self.entryExit.cbLog = self.cbLog
         self.entryExit.dm = self.dm
-        self.entryExitIDs = self.entryExit.initExits(idToName2)
+        self.entryExitIDs = self.entryExit.initExits(idToName2, config["entry-exit"], config["entry-exits"])
         self.cbLog("debug", "onConfigureMessage, entryExitIDs: " + str(self.entryExitIDs))
-        self.nightWander = NightWander(self.id)
+        self.nightWander = NightWander(self.id, config)
         self.nightWander.cbLog = self.cbLog
         self.nightWander.client = self.client
         self.nightWander.dm = self.dm
         self.nightWander.setNames(idToName2)
+        if config["hot_drinks"]["enable"] == 'True':
+            self.hotDrinks = HotDrinks()
+            self.hotDrinks.cbLog = self.cbLog
+            self.hotDrinks.dm = self.dm
+            self.hotDrinksID = self.hotDrinks.initIDs(idToName2, config["hot_drinks"])
         self.setState("starting")
 
 if __name__ == '__main__':

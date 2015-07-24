@@ -45,6 +45,7 @@ config = {
                    "sensor": "",
                    "threshold": 2
                   },
+    "send_delay": 1,
     "cid": "none",
     "client_test": "False"
 }
@@ -69,8 +70,6 @@ IN_PIR_TO_DOOR_TIME               = 30
 DOOR_CLOSE_TO_IN_PIR_TIME         = 10
 DOOR_OPEN_TO_IN_PIR_TIME          = 30
 MAX_DOOR_OPEN_TIME                = 60
-
-SEND_DELAY                        = 20  # Time to gather values for a device before sending them
 MAX_INTERVAL                      = 30*60 # Will post values after this even if they haven't changed
 
 def betweenTimes(t, t1, t2):
@@ -123,11 +122,19 @@ class DataManager:
         self.s.append(values)
         if not self.waiting:
             self.waiting = True
-            reactor.callLater(SEND_DELAY, self.sendValues)
+            reactor.callLater(config["send_delay"], self.sendValues)
 
     def storeAccel(self, deviceID, timeStamp, a):
-        values = {"name": self.baseAddress + deviceID + "/accel",
-                  "points": [[int(timeStamp*1000), a[0], a[1], a[2]]]
+        values = {"name": self.baseAddress + deviceID + "/accel/x",
+                  "points": [[int(timeStamp*1000), a[0]]]
+                 }
+        self.storeValues(values)
+        values = {"name": self.baseAddress + deviceID + "/accel/y",
+                  "points": [[int(timeStamp*1000), a[1]]]
+                 }
+        self.storeValues(values)
+        values = {"name": self.baseAddress + deviceID + "/accel/z",
+                  "points": [[int(timeStamp*1000), a[2]]]
                  }
         self.storeValues(values)
 
@@ -157,14 +164,30 @@ class DataManager:
         self.storeValues(values, deviceID)
 
     def storeGyro(self, deviceID, timeStamp, v):
-        values = {"name": self.baseAddress + deviceID + "/gyro",
-                  "points": [[int(timeStamp*1000), v[0], v[1], v[2]]]
+        values = {"name": self.baseAddress + deviceID + "/gyro/x",
+                  "points": [[int(timeStamp*1000), v[0]]]
+                 }
+        self.storeValues(values)
+        values = {"name": self.baseAddress + deviceID + "/gyro/y",
+                  "points": [[int(timeStamp*1000), v[1]]]
+                 }
+        self.storeValues(values)
+        values = {"name": self.baseAddress + deviceID + "/gyro/z",
+                  "points": [[int(timeStamp*1000), v[2]]]
                  }
         self.storeValues(values)
 
     def storeMagnet(self, deviceID, timeStamp, v):
-        values = {"name": self.baseAddress + deviceID + "/gyro",
-                  "points": [[int(timeStamp*1000), v[0], v[1], v[2]]]
+        values = {"name": self.baseAddress + deviceID + "/magnet/x",
+                  "points": [[int(timeStamp*1000), v[0]]]
+                 }
+        self.storeValues(values)
+        values = {"name": self.baseAddress + deviceID + "/magnet/y",
+                  "points": [[int(timeStamp*1000), v[1]]]
+                 }
+        self.storeValues(values)
+        values = {"name": self.baseAddress + deviceID + "/magnet/z",
+                  "points": [[int(timeStamp*1000), v[2]]]
                  }
         self.storeValues(values)
 

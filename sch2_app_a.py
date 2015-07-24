@@ -26,7 +26,7 @@ config = {
     "magnet_polling_interval": 3.0,
     "binary": "True",
     "luminance": "True",
-    "luminance_min_change": 1.0,
+    "luminance_min_change": 2.0,
     "power": "True",
     "power_min_change": 1.0,
     "battery": "True",
@@ -114,7 +114,7 @@ class DataManager:
         msg = {"m": "data",
                "d": self.s
                }
-        self.cbLog("debug", "sendValues. Sending: " + str(msg))
+        self.cbLog("debug", "sendValues. Sending: " + str(json.dumps(msg, indent=4)))
         self.client.send(msg)
         self.s = []
         self.waiting = False
@@ -228,7 +228,7 @@ class TemperatureMeasure():
         self.prevTime = time.time()
 
     def processTemp (self, resp):
-        self.cbLog("debug", "processTemp: " + self.id + " - " + str(resp))
+        #self.cbLog("debug", "processTemp: " + self.id + " - " + str(resp))
         timeStamp = resp["timeStamp"] 
         temp = resp["data"]
         if abs(temp-self.prevTemp) >= config["temp_min_change"] or timeStamp - self.prevTime > MAX_INTERVAL:
@@ -299,7 +299,7 @@ class Humid():
         self.prevTime = time.time()
 
     def processHumidity (self, resp):
-        self.cbLog("debug", "processHumidity: " + self.id + " - " + str(resp))
+        #self.cbLog("debug", "processHumidity: " + self.id + " - " + str(resp))
         h = resp["data"]
         timeStamp = resp["timeStamp"] 
         if abs(self.previous - h) >= config["humidity_min_change"] or timeStamp - self.prevTime > MAX_INTERVAL:
@@ -334,7 +334,7 @@ class Luminance():
         self.prevTime = time.time()
 
     def processLuminance(self, resp):
-        self.cbLog("debug", "processLuminance: " + self.id + " - " + str(resp))
+        #self.cbLog("debug", "processLuminance: " + self.id + " - " + str(resp))
         v = resp["data"]
         timeStamp = resp["timeStamp"] 
         if abs(v-self.previous) >= config["luminance_min_change"] or timeStamp - self.prevTime > MAX_INTERVAL:
@@ -627,7 +627,7 @@ class App(CbApp):
                     self.luminance[-1].dm = self.dm
                     self.luminance[-1].cbLog = self.cbLog
                     serviceReq.append({"characteristic": "luminance",
-                                       "interval": 0})
+                                       "interval": config["slow_polling_interval"]})
         msg = {"id": self.id,
                "request": "service",
                "service": serviceReq}

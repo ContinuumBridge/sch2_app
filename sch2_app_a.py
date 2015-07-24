@@ -473,7 +473,7 @@ class App(CbApp):
         This method is called in a thread by cbcommslib so it will not cause
         problems if it takes some time to complete (other than to itself).
         """
-        #self.cbLog("debug", "onadaptorData, message: " + str(message))
+        #self.cbLog("debug", "onadaptorData, message: " + str(json.dumps(message, indent=4)))
         if message["characteristic"] == "acceleration":
             for a in self.accel:
                 if a.id == self.idToName[message["id"]]: 
@@ -547,7 +547,7 @@ class App(CbApp):
                     break
 
     def onAdaptorService(self, message):
-        #self.cbLog("debug", "onAdaptorService, message: " + str(message))
+        #self.cbLog("debug", "onAdaptorService, message: " + str(json.dumps(message, indent=4)))
         self.devServices.append(message)
         serviceReq = []
         for p in message["service"]:
@@ -650,7 +650,7 @@ class App(CbApp):
                 config[c] = True
             elif c.lower in ("false", "f", "0"):
                 config[c] = False
-        self.cbLog("debug", "Config: " + str(config))
+        self.cbLog("debug", "Config: " + str(json.dumps(config, indent=4)))
         idToName2 = {}
         for adaptor in managerConfig["adaptors"]:
             adtID = adaptor["id"]

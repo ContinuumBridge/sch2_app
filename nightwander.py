@@ -67,4 +67,6 @@ class NightWander():
                     self.dm.storeActivity("Night_Wander", timeStamp, self.idToName[devID], 1)
                     self.lastActive = timeStamp
                     self.activatedSensors = []
+            else:
+                self.activatedSensors = []
 
